@@ -1,5 +1,5 @@
 CC = gcc
-CFLAG = -g
+CFLAGS = -g
 
 
 
