@@ -43,7 +43,7 @@ def recvMsg(connectedSocket, msgSize):
 
 	while totalBytes < msgSize: 
 	
-		dataReceived = connectedSocket.recv(65536)
+		dataReceived = connectedSocket.recv(min(msgSize-totalBytes, 65536))
 
 		if dataReceived == '':
 			return 'no data received'
@@ -74,58 +74,83 @@ def printDirectory(directoryStr):
 		sys.stdout.write(fileName + '  ')
 	print ''
 
+def processFileName(clientInput): 
+	
+	fileName = clientInput[3:]
 
+	tail = 1
+	while os.path.isfile(fileName):
+
+		periodIndex = fileName.rindex('.')
+	
+		if periodIndex == -1: 	
+			print 'period doesn\'t exist'
+			newFileName = fileName + str(tail)
+			if not os.path.isfile(newFileName):
+				fileName = newFileName
+
+		else: 
+			print 'period exists'
+			newFileName = fileName[:periodIndex] + str(tail) + fileName[periodIndex:]
+
+			if not os.path.isfile(newFileName):
+				fileName = newFileName
+
+		tail += 1
+
+	return fileName
 
 def handleTransfer(controlSocket, dataPort): 
 	while (1): 
 		sys.stdout.write('> ') 	
-		cmdRequest = raw_input()
-		if (cmdRequest == ''): 
+		clientInput = raw_input()
+		if (clientInput == ''): 
 			continue
-		if (cmdRequest == 'quit'): 
-			controlSocket.shutdown(SHUT_WR)
+		if (clientInput == 'quit'): 
+			#controlSocket.shutdown(SHUT_WR)
+			sendMsg(controlSocket, clientInput)
 			controlSocket.close()
 			print 'Control connection closed'
 			break
 	
-		sendMsg(controlSocket, cmdRequest)
+		sendMsg(controlSocket, clientInput)
 
 		#wait for server to validate and send a response.. 
-		cmdResponse = recvMsg(controlSocket, 7)
+		serverResponse = recvMsg(controlSocket, 7)
 
-		if cmdResponse[:5] == 'ERROR':  
+		if serverResponse[:5] == 'ERROR':  
 			print 'Error received. Try again.' 
 
-		elif cmdResponse[:6] == 'LISTEN':
+		elif serverResponse[:6] == 'LISTEN':
 			#print 'Start listen'	
 			dataSocket = startListen(dataPort) 
 
-			cmdResponse = recvMsg(controlSocket, 7)
+			serverResponse = recvMsg(controlSocket, 7)
 
-			if cmdResponse[:5] == 'ACK_l': 
+			if serverResponse[:5] == 'ACK_l': 
 				#print 'ACK_l received'
 				dirStr = recvMsg(dataSocket, 512) 
 				printDirectory(dirStr)
 				dataSocket.close()
 			
-			elif cmdResponse[:5] == 'ACK_g':
+			elif serverResponse[:5] == 'ACK_g':
 				print 'ACK_g received'
 
-				cmdResponse = recvMsg(controlSocket, 7)
+				serverResponse = recvMsg(controlSocket, 7)
+				print 'serverResponse is ' + serverResponse
 
-				if cmdResponse[:6] == 'FILENF': 
+				if serverResponse[:6] == 'FILENF': 
 					print 'FILE NOT FOUND' 	
 					dataSocket.close()
 
-				elif cmdResponse[:6] == 'FILENG':
+				elif serverResponse[:6] == 'FILENG':
 					print 'Error: No file given'
 					dataSocket.close()
 				
-				elif cmdResponse[:6] == 'FILEIN': 
+				elif serverResponse[:6] == 'FILEIN': 
 					print 'Receiving file'
 					fileSize = recvMsg(dataSocket, 256)
 					fileSize = fileSize.rstrip('\x00')
-					#print 'filesize is ' + int(fileSize)	
 
 					#fileSize = int(fileSize)
 					print 'received filesize is ' + fileSize	
@@ -136,7 +161,9 @@ def handleTransfer(controlSocket, dataPort):
 					file1 = recvMsg(dataSocket, int(fileSize))
 					#filex = file1.rstrip('\x00')
 
-					fileName = cmdRequest[3:]
+					fileName = processFileName(clientInput)
+
+					print 'fileName is ' + fileName
 					f = open(fileName, 'w')
 					f.write(file1)
 					#with open(fileName, 'a') as f: 
@@ -144,18 +171,9 @@ def handleTransfer(controlSocket, dataPort):
 
 					f.close()
 					print 'file transfer complete'
-					#print file1
-
 
 					dataSocket.close()
 
-'''	
-	
-		elif cmdResponse[:6] == 'FILENF': 
-			print 'FILE NOT FOUND' 	
-				
-'''
-	
 	
 
 #main function
