@@ -43,7 +43,7 @@ def recvMsg(connectedSocket, msgSize):
 
 	while totalBytes < msgSize: 
 	
-		dataReceived = connectedSocket.recv(min(msgSize-totalBytes, 2048))
+		dataReceived = connectedSocket.recv(65536)
 
 		if dataReceived == '':
 			return 'no data received'
@@ -63,6 +63,17 @@ def startListen(dataPort):
 
 	return dataSocket	
 ########
+
+def printDirectory(directoryStr): 
+	directoryStr = directoryStr.rstrip('\x00')
+	directoryList = directoryStr.split(" ")
+	directoryList = filter(None, directoryList)
+	directoryList.sort()
+
+	for fileName in directoryList: 
+		sys.stdout.write(fileName + '  ')
+	print ''
+
 
 
 def handleTransfer(controlSocket, dataPort): 
@@ -86,24 +97,59 @@ def handleTransfer(controlSocket, dataPort):
 			print 'Error received. Try again.' 
 
 		elif cmdResponse[:6] == 'LISTEN':
-			print 'Start listen'	
+			#print 'Start listen'	
 			dataSocket = startListen(dataPort) 
 
-			cmdResponse = recvMsg(dataSocket, 7)
+			cmdResponse = recvMsg(controlSocket, 7)
+
 			if cmdResponse[:5] == 'ACK_l': 
-				directoryList = recvMsg(dataSocket, 512) 
-				print directoryList
+				#print 'ACK_l received'
+				dirStr = recvMsg(dataSocket, 512) 
+				printDirectory(dirStr)
 				dataSocket.close()
 			
 			elif cmdResponse[:5] == 'ACK_g':
 				print 'ACK_g received'
+
+				cmdResponse = recvMsg(controlSocket, 7)
+
+				if cmdResponse[:6] == 'FILENF': 
+					print 'FILE NOT FOUND' 	
+					dataSocket.close()
+
+				elif cmdResponse[:6] == 'FILENG':
+					print 'Error: No file given'
+					dataSocket.close()
 				
-			elif cmdResponse[:5] == 'ERROR':
-				print 'Error: No file input'
+				elif cmdResponse[:6] == 'FILEIN': 
+					print 'Receiving file'
+					fileSize = recvMsg(dataSocket, 256)
+					fileSize = fileSize.rstrip('\x00')
+					#print 'filesize is ' + int(fileSize)	
+
+					#fileSize = int(fileSize)
+					print 'received filesize is ' + fileSize	
+					fs = int(fileSize)
+					print fs 
+					#fileSize = socket.ntohs(fileSize)
+
+					file1 = recvMsg(dataSocket, int(fileSize))
+					#filex = file1.rstrip('\x00')
+
+					fileName = cmdRequest[3:]
+					f = open(fileName, 'w')
+					f.write(file1)
+					#with open(fileName, 'a') as f: 
+					#	f.write(file1) 	
+
+					f.close()
+					print 'file transfer complete'
+					#print file1
+
+
+					dataSocket.close()
 
 '''	
-		elif cmdResponse[:5] == 'ACK_g':
-			print 'ACK_g received'
 	
 		elif cmdResponse[:6] == 'FILENF': 
 			print 'FILE NOT FOUND' 	
