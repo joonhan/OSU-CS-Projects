@@ -207,12 +207,14 @@ void setDirectory(char* directoryStr) {
 	//shift the pointer past the first entries ('.' and '..') 	
 	p=readdir(dir); 
 	p=readdir(dir);
+	//seekdir(dir, 2); 
 	 
 	//while directory entry exists, concatentate into string	
 	while ( ((p = readdir(dir)) != NULL) ) {
 		strcat(directoryStr, p->d_name); 
 		strcat(directoryStr, " "); 
 	}
+	closedir(dir); 
 }
 
 
@@ -232,9 +234,11 @@ bool fileExists(char* fileName) {
 	//if fileName matches a file in directory, return true
 	while ( ((q = readdir(dir2)) != NULL) ) {
 		if (strcmp(q->d_name, fileName) == 0) {
+			closedir(dir2); 
 			return true;	
 		}
 	}
+	closedir(dir2); 
 	return false; 
 }
 
@@ -282,11 +286,16 @@ void sendFile(int dataSockFD, char *fileName) {
 }
 
 
-////////////////////////////////////////////
+/* Function: handleSIGINT 
+ *	-----------------------
+ * purpose: intercept SIGINT signals
+ * parameters: signo represents the signal type being handled
+ * returns: N/A
+ */
 void handleSIGINT(int signo) {
 	if (signo == SIGINT) {
-		printf("Server interrupted. Shutting down.\n"); 
-		exit(1); 
+		printf("\nServer interrupted. Shutting down.\n"); 
+		exit(0); 
 	}
 }
 
@@ -308,11 +317,6 @@ void handleCommand(int ctrlSockFD) {
 	DIR* dir;
 	char directoryStr[DIR_STR_LEN], clientPortNum[PORT_STR_LEN], clientCommand[CMD_STR_LEN]; 
 	memset(clientPortNum, '\0', PORT_STR_LEN); 	
-
-/*	struct sigaction sa; 
-	sa.sa_handler = SIGINT;	
-	sigaction(SIGINT, &sa, handleSIGINT); 
-*/
 
 	//receive client's port number (used to establish data connection)
 	recvMsg(ctrlSockFD, clientPortNum, sizeof(clientPortNum), 0); 
@@ -344,6 +348,7 @@ void handleCommand(int ctrlSockFD) {
 			if ( (dirPath == NULL) ) {
 				if ((strcmp(getenv("HOME"), curDir) != 0)) {
 					chdir(getenv("HOME")); 
+					sendMsg(ctrlSockFD, "CHGDIR", RESPONSE_LEN, 0); 	
 				}
 				else {
 					sendMsg(ctrlSockFD, "ENDDIR", RESPONSE_LEN, 0); 	
@@ -359,17 +364,20 @@ void handleCommand(int ctrlSockFD) {
 
 			//if at HOME and attempting to go back further, stay in same dir
 			else if ( (strcmp(getenv("HOME"), curDir) == 0) && (strcmp(dirPath, "..") == 0) ) {
-				sendMsg(ctrlSockFD, "ENDDIR", RESPONSE_LEN, 0); 	
+				sendMsg(ctrlSockFD, "ENDDIR", RESPONSE_LEN, 0);
+				closedir(dir); 
 				continue;
 			}	
 			//otherwise valid path was given; change dir
 			else { 
 				chdir(dirPath); 
+				closedir(dir); 
+				sendMsg(ctrlSockFD, "CHGDIR", RESPONSE_LEN, 0); 	
 			}	
-			sendMsg(ctrlSockFD, "CHGDIR", RESPONSE_LEN, 0); 	
-			getcwd(curDir, sizeof(curDir));
-			printf("Changed directory to %s\n", curDir);
-			//if (dir != NULL) closedir(dir); 
+			//getcwd(curDir, sizeof(curDir));
+			//printf("Changed directory to %s\n", curDir);
+			
+			//remember 6448000 is bigger than INT!!!!!!!!
 		}
 		//** anything other than '-l' or '-g' is considered invalid.. for the purpose of project
 
@@ -474,6 +482,14 @@ int main(int argc, char* argv[]) {
 	
 	int serverSockFD, ctrlSockFD;	
 	serverSockFD = startServer(argv[1]); 
+
+	//initialize signal handler for SIGINT
+	struct sigaction sa; 
+	sa.sa_handler = handleSIGINT;	
+	sigemptyset(&sa.sa_mask); 
+	sa.sa_flags = 0; 
+	sigaction(SIGINT, &sa, NULL); 
+
 
 	//using '-cd' and chdir() will cause server directory to change and new client connections
 	//will stay in last changed directory. 
