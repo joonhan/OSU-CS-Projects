@@ -374,10 +374,6 @@ void handleCommand(int ctrlSockFD) {
 				closedir(dir); 
 				sendMsg(ctrlSockFD, "CHGDIR", RESPONSE_LEN, 0); 	
 			}	
-			//getcwd(curDir, sizeof(curDir));
-			//printf("Changed directory to %s\n", curDir);
-			
-			//remember 6448000 is bigger than INT!!!!!!!!
 		}
 		//** anything other than '-l' or '-g' is considered invalid.. for the purpose of project
 
