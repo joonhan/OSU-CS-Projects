@@ -6,6 +6,8 @@
  * Beej's Guide to Network Programming. 
  */
 
+/* Extra Credit: Added capability to change directory using '-cd [path]' */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,19 +19,15 @@
 #include <stdbool.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 
 #define CMD_STR_LEN 256
 #define PORT_STR_LEN 256
 #define RESPONSE_LEN 7
 #define DIR_STR_LEN 512
+#define START_DIR_LEN 512
 #define FILESIZE 65536 
 #define MIN(a,b) a<b?a:b
-
-/* TO DOs
- * 2) SIGINT issues
- * 4) adding features - cd, put, listing local directory, etc
- * 5) transferring images!
-*/
 
 
 /* Function: startServer
@@ -191,6 +189,7 @@ char* getClientName(int sockFD) {
 	return hostName; 
 }
 
+
 /* Function: setDirectory 
  *	----------------------
  * purpose: retrieve directory of files and assign it as a string to ptr in parameter
@@ -283,6 +282,15 @@ void sendFile(int dataSockFD, char *fileName) {
 }
 
 
+////////////////////////////////////////////
+void handleSIGINT(int signo) {
+	if (signo == SIGINT) {
+		printf("Server interrupted. Shutting down.\n"); 
+		exit(1); 
+	}
+}
+
+
 /* Function: handleCommand 
  *	-----------------------
  * purpose: receives commands from client and handles  
@@ -295,36 +303,82 @@ void handleCommand(int ctrlSockFD) {
 	int dataSockFD; 
 	char* hostName;
 	char* fileName;
+	char* dirPath; 
+	char curDir[512];
+	DIR* dir;
 	char directoryStr[DIR_STR_LEN], clientPortNum[PORT_STR_LEN], clientCommand[CMD_STR_LEN]; 
-	memset(directoryStr, '\0', sizeof(directoryStr)); 
 	memset(clientPortNum, '\0', PORT_STR_LEN); 	
-	memset(clientCommand, '\0', CMD_STR_LEN); 	
+
+/*	struct sigaction sa; 
+	sa.sa_handler = SIGINT;	
+	sigaction(SIGINT, &sa, handleSIGINT); 
+*/
 
 	//receive client's port number (used to establish data connection)
 	recvMsg(ctrlSockFD, clientPortNum, sizeof(clientPortNum), 0); 
 
 	//loop until client sends 'quit'
 	while (1) {
+		//reset command & directory strings prior to each loop
+		memset(clientCommand, '\0', CMD_STR_LEN); 
+		memset(directoryStr, '\0', sizeof(directoryStr)); 
+
 		//receive client's command
 		recvMsg(ctrlSockFD, clientCommand, sizeof(clientCommand), 0); 
 
-		//client sends msg to quit
+		//server receives quit msg 
 		if (strcmp(clientCommand, "quit") == 0) {
-			printf("Client has disconnected\n"); 
+			printf("Client has disconnected.\n"); 
 			close(ctrlSockFD); 
 			break;
-		} 
-	
-		//add additional features here!	
-		//else if ( strcmp(clientCommand, "-cd") == 0) {
-			//printf("changing directory\n"); 
+		}	
+		//Extra credit: change directory features	
+		else if ( strncmp(clientCommand, "-cd", 3) == 0) {
+			//ignore the '-cd' portion and extract path argument
+			strtok(clientCommand, " "); 
+			dirPath = strtok(NULL, " "); 
 
-		//client cmd is neither '-l' nor begin with '-g'
+			getcwd(curDir, sizeof(curDir)); 
+
+			//path arg is not provided; if not at HOME go home 
+			if ( (dirPath == NULL) ) {
+				if ((strcmp(getenv("HOME"), curDir) != 0)) {
+					chdir(getenv("HOME")); 
+				}
+				else {
+					sendMsg(ctrlSockFD, "ENDDIR", RESPONSE_LEN, 0); 	
+					continue;	
+				}
+			}
+			//path arg given but invalid.. can't open dir
+			else if ( (dir = opendir(dirPath)) == NULL ) {
+				fprintf(stderr, "Error: server could not find directory\n"); 
+				sendMsg(ctrlSockFD, "BADDIR", RESPONSE_LEN, 0); 	
+				continue;
+			}		
+
+			//if at HOME and attempting to go back further, stay in same dir
+			else if ( (strcmp(getenv("HOME"), curDir) == 0) && (strcmp(dirPath, "..") == 0) ) {
+				sendMsg(ctrlSockFD, "ENDDIR", RESPONSE_LEN, 0); 	
+				continue;
+			}	
+			//otherwise valid path was given; change dir
+			else { 
+				chdir(dirPath); 
+			}	
+			sendMsg(ctrlSockFD, "CHGDIR", RESPONSE_LEN, 0); 	
+			getcwd(curDir, sizeof(curDir));
+			printf("Changed directory to %s\n", curDir);
+			//if (dir != NULL) closedir(dir); 
+		}
+		//** anything other than '-l' or '-g' is considered invalid.. for the purpose of project
+
+		//client cmd is neither '-l' nor begin with '-g'	Note: strtok alters clientCommand!!
 		else if ( (strcmp(clientCommand, "-l") != 0) && (strcmp( strtok(clientCommand, " "), "-g") != 0)) {
 			sendMsg(ctrlSockFD, "ERROR", RESPONSE_LEN, 0);
 		}
 
-		//otherwise direct client to begin listening
+		//direct client to begin listening
 		else {
 			sendMsg(ctrlSockFD, "LISTEN", RESPONSE_LEN, 0); 
 
@@ -332,9 +386,9 @@ void handleCommand(int ctrlSockFD) {
 			hostName = getClientName(ctrlSockFD); 
 			dataSockFD = startDataConnection(hostName, clientPortNum); 
 
-			//if client command was '-l' send directory over data connection
+			//client sent '-l' over data connection
 			if (strcmp(clientCommand, "-l") == 0) {
-				//acknowledge to client that '-l' was received
+				//acknowledge to client that '-l' was received; save directory to string and send
 				sendMsg(ctrlSockFD, "ACK_l", RESPONSE_LEN, 0); 
 		
 				printf("Client requested directory listing\n"); 	
@@ -346,10 +400,8 @@ void handleCommand(int ctrlSockFD) {
 
 			//client command started with '-g'
 			else {
-				//acknowledge to client that '-g' was received
+				//acknowledge to client that '-g' was received and read filename after '-g'
 				sendMsg(ctrlSockFD, "ACK_g", RESPONSE_LEN, 0); 
-
-				//read the filename after '-g'
 				fileName = strtok(NULL, " "); 
 
 				//if a file name is given, check whether file exists in directory
@@ -357,15 +409,14 @@ void handleCommand(int ctrlSockFD) {
 				
 					printf("Client requested file \'%s\'\n", fileName); 	
 
+					//acknowledge that file was found and send file
 					if (fileExists(fileName) == 1) {
-						//acknowledge that file was found and send file
 						sendMsg(ctrlSockFD, "FILEIN", RESPONSE_LEN, 0); 
-	
 						printf("Sending \'%s\' on port %s\n", fileName, clientPortNum); 	
 						sendFile(dataSockFD, fileName); 
 					}
+					//send file not found message
 					else {
-						//send file not found message
 						sendMsg(ctrlSockFD, "FILENF", RESPONSE_LEN, 0);
 						printf("File not found\n"); 
 					}
@@ -376,14 +427,8 @@ void handleCommand(int ctrlSockFD) {
 					printf("File not given\n"); 
 				}
 			}
-			//close data connection
 			close(dataSockFD);
 		}
-		//reset command and directory buffers	
-		memset(clientCommand, '\0', CMD_STR_LEN); 
-		memset(directoryStr, '\0', sizeof(directoryStr)); 
-
-		//fileName = NULL; 
 	} //end of while loop
 }	//end of handleCommand()
 
@@ -409,7 +454,6 @@ int connectClient(int serverSockFD, char* port) {
 	}
 	
 	printf("Server is listening on port %d...\n", portNumber); 
-
 	sizeOfClientInfo = sizeof(clientAddress); //required to get server to receive request 
 
 	//accept client connection request
@@ -431,10 +475,17 @@ int main(int argc, char* argv[]) {
 	int serverSockFD, ctrlSockFD;	
 	serverSockFD = startServer(argv[1]); 
 
+	//using '-cd' and chdir() will cause server directory to change and new client connections
+	//will stay in last changed directory. 
+	//thus save starting directory and reset directory when new a client connects
+	char startDir[START_DIR_LEN]; 
+	getcwd(startDir, sizeof(startDir)); 
+
 	//continue loop even after client disconnects
 	while (1) {
 		ctrlSockFD = connectClient(serverSockFD, argv[1]); 
-		handleCommand(ctrlSockFD); 	
+		handleCommand(ctrlSockFD);
+		chdir(startDir); 		 		//reset directory for new connection	
 	}
 
 	return 0;

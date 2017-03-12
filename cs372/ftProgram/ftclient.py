@@ -2,8 +2,10 @@
 	Joon Han
 	Program 2, ftclient.py
 	Client side of a simple file transfer system. 
-	Note: Parts of this code uses code I wrote for Program 1.
+	Note: Parts of this program uses code I wrote for Program 1.
 """
+
+"""Extra Credit: Added capability to change directory using '-cd [path]' """
 
 import socket
 import argparse 
@@ -130,11 +132,11 @@ def processFileName(clientInput):
 		#period not found; create new file name w/ duplicate indicator at end
 		periodIndex = fileName.rfind('.')
 		if periodIndex == -1: 	
-			newFileName = fileName + str(dupCount)
+			newFileName = fileName + '_' + str(dupCount) + '_'
 
 		#period is found; add duplicate indicator just before dot extension
 		else: 
-			newFileName = fileName[:periodIndex] + str(dupCount) + fileName[periodIndex:]
+			newFileName = fileName[:periodIndex] + '_' + str(dupCount) + '_' + fileName[periodIndex:]
 
 		#new file name doesn't exist in directory; overwrite old fileName
 		if not os.path.isfile(newFileName):
@@ -155,7 +157,7 @@ def handleTransfer(controlSocket, dataPort):
 	while (1): 
 		signal.signal(signal.SIGINT, sigIntHandler)
 
-		#take user input
+		#take user input and send msg
 		sys.stdout.write('> ') 	
 		clientInput = raw_input()
 
@@ -174,12 +176,21 @@ def handleTransfer(controlSocket, dataPort):
 		RESPONSE_LEN = 7
 		DIRECTORY_LEN = 512
 
-		#wait for server to validate and send a response.. 
+		#wait for server to send a response; examine response 
 		serverResponse = recvMsg(controlSocket, RESPONSE_LEN)
 
-		#react accordingly to server response
 		if serverResponse[:5] == 'ERROR':  
 			print 'Error received. Try again.' 
+
+		elif serverResponse[:6] == 'CHGDIR': 
+			#print 'Server changed directories.'
+			continue 	
+
+		elif serverResponse[:6] == 'BADDIR': 
+			print 'Failed to changed directories. Bad path.'
+
+		elif serverResponse[:6] == 'ENDDIR': 
+			print 'Already at root directory.'
 
 		#once server sends 'LISTEN' msg, begin listening for connection request
 		elif serverResponse[:6] == 'LISTEN':
@@ -223,7 +234,7 @@ def handleTransfer(controlSocket, dataPort):
 
 			dataSocket.close()	
 
-#main function
+
 if __name__ == "__main__": 
 	#create parser to parse cmd line arg	
 	parser = argparse.ArgumentParser(description='File transfer program (client)', 
