@@ -15,6 +15,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <dirent.h>
 #include <stdbool.h>
 #include <fcntl.h>
@@ -38,10 +39,9 @@
  */
 int startServer(char* argv1) {
 
-	int sockFD, connectedSockFD, portNumber; 
+	int sockFD, portNumber; 
 
-	struct sockaddr_in serverAddress, clientAddress; 
-	struct hostent* serverHostInfo; 
+	struct sockaddr_in serverAddress;
 
 	memset( (char*)&serverAddress, '\0', sizeof(serverAddress)); 
 	portNumber = atoi(argv1); 
@@ -262,27 +262,31 @@ void sendFile(int dataSockFD, char *fileName) {
 	//get file stats from open file 
 	fstat(fd, &fs);
 
-	//create a buffer as large as the open file to store file contents
-	char file[fs.st_size]; 
-	memset(file, '\0', sizeof(file)); 
+	unsigned long fileSize = fs.st_size; 
 
+	//create a buffer as large as the open file to store file contents
+	//char* file = malloc (sizeof(char) * fileSize); 
+	char* requestedFile = calloc (fileSize, sizeof(char)); 
+
+	//**creating file like so: char file[fileSize] causes error due to overflowing stack
+	
 	//create a buffer to store the size of file as a string
  	char size[256];
 	memset(size, '\0', sizeof(size)); 
 
-	//convert the number value of file size to a string
-	sprintf(size, "%d", fs.st_size);  
-
-	//send the size of file to client as string
+	//convert the number value of fileSize to a string and send as msg
+	sprintf(size, "%lu", fileSize);  
 	sendMsg(dataSockFD, size, 256, 0); 
 	
 	//read file contents into buffer					
-	if ( (read(fd, file, fs.st_size)) < 0) {
+	if ( (read(fd, requestedFile, fileSize)) < 0) {
 		fprintf(stderr, "Error: could not read file\n");
 		exit(1); 
 	} 
 
-	sendMsg(dataSockFD, file, fs.st_size, 0); 
+	sendMsg(dataSockFD, requestedFile, fs.st_size, 0); 
+	free(requestedFile); 
+	requestedFile = NULL; 
 }
 
 
@@ -345,7 +349,7 @@ void handleCommand(int ctrlSockFD) {
 			getcwd(curDir, sizeof(curDir)); 
 
 			//path arg is not provided; if not at HOME go home 
-			if ( (dirPath == NULL) ) {
+			if (dirPath == NULL) {
 				if ((strcmp(getenv("HOME"), curDir) != 0)) {
 					chdir(getenv("HOME")); 
 					sendMsg(ctrlSockFD, "CHGDIR", RESPONSE_LEN, 0); 	
@@ -400,6 +404,8 @@ void handleCommand(int ctrlSockFD) {
 				
 				printf("Sending directory listing on port %s\n", clientPortNum); 	
 				sendMsg(dataSockFD, directoryStr, DIR_STR_LEN, 0);	//can improve to send variable length		
+				printf("Directory sent successfully.\n"); 	
+				
 			}
 
 			//client command started with '-g'
@@ -418,6 +424,7 @@ void handleCommand(int ctrlSockFD) {
 						sendMsg(ctrlSockFD, "FILEIN", RESPONSE_LEN, 0); 
 						printf("Sending \'%s\' on port %s\n", fileName, clientPortNum); 	
 						sendFile(dataSockFD, fileName); 
+						printf("File transfer complete.\n"); 	
 					}
 					//send file not found message
 					else {

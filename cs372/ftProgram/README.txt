@@ -21,9 +21,9 @@ Step-by-Step Instructions
 
 3. Run ftclient.py in another window by typing: 
 
-		"python ftclient.py flip 30030 30040"  
+		"python ftclient.py flip1 30030 30040"  
 
-	Or whichever port number is available. 
+	Or whichever flip server the server is on and port number available. 
 
 
 4. A prompt with ">" will appear in the window. 
